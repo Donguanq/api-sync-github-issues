@@ -147,3 +147,14 @@ Do not commit credentials, access tokens, passwords, or other secrets to the rep
 ## Skills Demonstrated
 
 REST API integration, pagination, JSON processing, JavaScript transformations, SQL, PostgreSQL data modeling, idempotency, data integrity validation, error handling, retry strategies, and workflow automation with n8n.
+
+## Screenshots
+
+### Workflow Overview
+![Workflow overview](screenshots/workflow-overview.png)
+
+### Synchronization Validation
+![PostgreSQL sync validation](screenshots/postgres-results.png)
+
+### Error Notifications
+![Telegram error notification](screenshots/telegram-error-notification.png)
