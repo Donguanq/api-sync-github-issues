@@ -151,3 +151,14 @@ Telegram — Send Message
 ## Продемонстрированные навыки
 
 Интеграция REST API, пагинация, работа с JSON и массивами, JavaScript в n8n, PostgreSQL и SQL, моделирование данных, идемпотентность, контроль целостности данных, повторные попытки, обработка ошибок и построение интеграционных автоматизаций.
+
+## Скриншоты
+
+### Общая схема workflow
+![Общая схема workflow](screenshots/workflow-overview.png)
+
+### Проверка синхронизации
+![Результат проверки PostgreSQL](screenshots/postgres-results.png)
+
+### Уведомления об ошибках
+![Уведомление Telegram](screenshots/telegram-error-notification.png)
