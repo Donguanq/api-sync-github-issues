@@ -1,0 +1,389 @@
+{
+  "name": "API Sync — GitHub Issues",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -96
+      ],
+      "id": "6db3ff5a-f975-4bbb-89c2-a04a0fd24e3e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/search/issues",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "repo:n8n-io/n8n is:issue state:open"
+            },
+            {
+              "name": "sort",
+              "value": "created"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.items.length === 0 }}"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "bc1ce2cc-a538-44b3-9918-0764d7133f1b",
+      "name": "HTTP Request",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const pages = $input.all().map(item => item.json);\n\nif (pages.length === 0) {\n  throw new Error('GitHub returned no pages');\n}\n\nif (pages.some(page => !Array.isArray(page.items))) {\n  throw new Error('Invalid GitHub response: items array is missing');\n}\n\nif (pages.some(page => page.incomplete_results === true)) {\n  throw new Error('GitHub marked the search results as incomplete');\n}\n\nconst expectedCount = Number(pages[0].total_count);\n\nif (!Number.isFinite(expectedCount)) {\n  throw new Error('GitHub total_count is missing or invalid');\n}\n\nif (pages.some(page => Number(page.total_count) !== expectedCount)) {\n  throw new Error('GitHub total_count changed between pages');\n}\n\nconst issues = pages.flatMap(page => page.items);\n\nif (issues.length !== expectedCount) {\n  throw new Error(\n    `Incomplete sync: expected ${expectedCount} results, received ${issues.length}`\n  );\n}\n\nconst normalizedIssues = issues\n  .filter(issue => !issue.pull_request)\n  .map(issue => ({\n    json: {\n      repository: 'n8n-io/n8n',\n      github_id: issue.id,\n      issue_number: issue.number,\n      title: issue.title,\n      state: issue.state,\n      author_login: issue.user?.login ?? null,\n      created_at: issue.created_at,\n      updated_at: issue.updated_at,\n      closed_at: issue.closed_at,\n      html_url: issue.html_url,\n      comments_count: issue.comments ?? 0,\n      locked: issue.locked ?? false,\n      labels: (issue.labels ?? []).map(label => label.name),\n      body: issue.body ?? null\n    }\n  }));\n\nif (normalizedIssues.length !== expectedCount) {\n  throw new Error('Unexpected pull requests found in issue results');\n}\n\nreturn normalizedIssues;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "27f07be4-07b1-4631-baf9-a00cd6908223",
+      "name": "Normalize Issues"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO github_issues_sync (\n    repository,\n    github_id,\n    issue_number,\n    title,\n    state,\n    author_login,\n    created_at,\n    updated_at,\n    closed_at,\n    html_url,\n    comments_count,\n    locked,\n    labels,\n    body,\n    sync_run_id,\n    last_synced_at\n)\nVALUES (\n    $1, $2, $3, $4, $5, $6,\n    $7::timestamptz,\n    $8::timestamptz,\n    $9::timestamptz,\n    $10, $11, $12, $13::jsonb, $14, $15, NOW()\n)\nON CONFLICT (repository, github_id)\nDO UPDATE SET\n    issue_number = EXCLUDED.issue_number,\n    title = EXCLUDED.title,\n    state = EXCLUDED.state,\n    author_login = EXCLUDED.author_login,\n    created_at = EXCLUDED.created_at,\n    updated_at = EXCLUDED.updated_at,\n    closed_at = EXCLUDED.closed_at,\n    html_url = EXCLUDED.html_url,\n    comments_count = EXCLUDED.comments_count,\n    locked = EXCLUDED.locked,\n    labels = EXCLUDED.labels,\n    body = EXCLUDED.body,\n    sync_run_id = EXCLUDED.sync_run_id,\n    last_synced_at = NOW()\nRETURNING\n    repository,\n    github_id,\n    issue_number,\n    state,\n    updated_at,\n    last_synced_at,\n    sync_run_id;",
+        "options": {
+          "queryBatching": "transaction",
+          "queryReplacement": "={{ [\n  $json.repository,\n  $json.github_id,\n  $json.issue_number,\n  $json.title,\n  $json.state,\n  $json.author_login,\n  $json.created_at,\n  $json.updated_at,\n  $json.closed_at,\n  $json.html_url,\n  $json.comments_count,\n  $json.locked,\n  JSON.stringify($json.labels),\n  $json.body,\n  String($execution.id)\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        672,
+        0
+      ],
+      "id": "8e204051-5ee3-4468-918c-ff31646e8bfa",
+      "name": "Upsert GitHub Issues",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5vwjyZotTttHEsRE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    'n8n-io/n8n' AS repository,\n    COUNT(*) AS synced_this_run,\n    $2::bigint AS expected_count,\n    COUNT(*) = $2::bigint AS sync_complete\nFROM github_issues_sync\nWHERE repository = 'n8n-io/n8n'\n  AND sync_run_id = $1;",
+        "options": {
+          "queryReplacement": "={{ [\n  String($execution.id),\n  Number($('HTTP Request').first().json.total_count)\n] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        896,
+        0
+      ],
+      "id": "b8aed403-78af-47c7-9ed9-16ad4db5652d",
+      "name": "Verify Sync Count",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "5vwjyZotTttHEsRE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ed3ecd5a-3941-4781-8738-4e29ff86c5ef",
+              "leftValue": "={{ $json.sync_complete }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "f40b55e4-0445-4718-af83-ad1eda2fdcc5",
+      "name": "IF Sync Complete"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    repository,\n    github_id,\n    issue_number,\n    state,\n    sync_run_id\nFROM github_issues_sync\nWHERE repository = 'n8n-io/n8n'\n  AND state = 'open'\n  AND sync_run_id IS DISTINCT FROM $1;",
+        "options": {
+          "queryReplacement": "={{ [String($execution.id)] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1344,
+        -96
+      ],
+      "id": "9988b6fa-833b-486c-bb6e-fc67785fc057",
+      "name": "Find Missing Issues",
+      "credentials": {
+        "postgres": {
+          "id": "5vwjyZotTttHEsRE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.github.com/repos/' + $json.repository + '/issues/' + $json.issue_number }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2026-03-10"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        -96
+      ],
+      "id": "257c09cf-ff8f-4f01-bafe-62ddda5f0712",
+      "name": "GET Missing Issue Status"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE github_issues_sync\nSET\n    state = $1,\n    updated_at = $2::timestamptz,\n    closed_at = $3::timestamptz,\n    sync_run_id = $4,\n    last_synced_at = NOW()\nWHERE repository = 'n8n-io/n8n'\n  AND github_id = $5\nRETURNING\n    repository,\n    github_id,\n    issue_number,\n    state,\n    closed_at,\n    last_synced_at;",
+        "options": {
+          "queryReplacement": "={{ [   $json.state,   $json.updated_at,   $json.closed_at,   String($execution.id),   $json.id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1792,
+        -96
+      ],
+      "id": "1c374cfb-d5bc-4be0-93bb-544970fc399c",
+      "name": "Update Verified Issue Status",
+      "credentials": {
+        "postgres": {
+          "id": "5vwjyZotTttHEsRE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        128
+      ],
+      "id": "bf17ec07-a4ba-43e0-b6cd-f05e993a1763",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Issues": {
+      "main": [
+        [
+          {
+            "node": "Upsert GitHub Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert GitHub Issues": {
+      "main": [
+        [
+          {
+            "node": "Verify Sync Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Sync Count": {
+      "main": [
+        [
+          {
+            "node": "IF Sync Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Sync Complete": {
+      "main": [
+        [
+          {
+            "node": "Find Missing Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Missing Issues": {
+      "main": [
+        [
+          {
+            "node": "GET Missing Issue Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Missing Issue Status": {
+      "main": [
+        [
+          {
+            "node": "Update Verified Issue Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "4sd4K4O6NVbv3v9v",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "7144596f-a635-4a26-84b1-af6bc5ba783c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cbed35810f57eb01fb3d6020331c00aa651ee58f915d201fa56c05e0602542a7"
+  },
+  "nodeGroups": [],
+  "id": "OpNDQBF8aauffeSW",
+  "tags": []
+}
