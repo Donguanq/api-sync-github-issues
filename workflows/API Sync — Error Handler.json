@@ -1,0 +1,65 @@
+{
+  "name": "API Sync — Error Handler.",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "41d0b683-8ed6-40ad-9c98-ad22ee20dd0a",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "687885959",
+        "text": "={{\n[\n  '🚨 Ошибка синхронизации n8n',\n  '',\n  `Workflow: ${$json.workflow?.name ?? 'unknown'}`,\n  `Последняя нода: ${$json.execution?.lastNodeExecuted ?? 'unknown'}`,\n  `Ошибка: ${$json.execution?.error?.message ?? 'нет текста ошибки'}`,\n  `Execution: ${$json.execution?.url ?? 'ссылка недоступна'}`\n].join('\\n')\n}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "fd494355-b0de-4801-94c4-0ad5a12c7f2d",
+      "name": "Send a text message",
+      "webhookId": "d3e533a3-3141-43d8-a45f-76ce51d7d34b",
+      "credentials": {
+        "telegramApi": {
+          "id": "sVmwvC4ZCcRYmBDH",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4fcc38a0-e4ca-4140-bc04-26f8a45963f9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cbed35810f57eb01fb3d6020331c00aa651ee58f915d201fa56c05e0602542a7"
+  },
+  "nodeGroups": [],
+  "id": "4sd4K4O6NVbv3v9v",
+  "tags": []
+}
